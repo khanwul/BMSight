@@ -10,7 +10,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from .parser import read_bms, SCRATCH_COL
+from .parser import read_bms
 
 
 def _tagcol():
@@ -53,20 +53,22 @@ def _setup_cjk_font():
 
 # ---- web-bms-viewer-style render (Snack-X/web-bms-viewer) + classifier segments ----
 # That viewer's layout: 16 beats per column, notes bottom-to-top, lanes left-to-right
-# = scratch + keys 1-7. We reproduce it and overlay the classifier's segment
-# boundaries + tags — the visual companion to `python -m bmspc.tag`.
+# = scratch(es) + keys. We reproduce it and overlay the classifier's segment
+# boundaries + tags — the visual companion to `python -m bmspc.tag`. Lane width is
+# per-chart (7K=8, 14K-DP=16, 9K-PMS=9); plot_segmented shadows _LANE_W/_COL_W.
 _BEATS_PER_COL = 16.0
-_LANE_W = 8.0            # scratch + 7 keys occupy x = 0..7 within a column
+_LANE_W = 8.0            # 7K default (scratch + 7 keys); real width is chart-derived
 _COL_W = _LANE_W + 3.0   # + a gap before the next column
 
 
-def _lane_x(col):
-    """parser column (0..6 = key1..7, 7 = scratch) -> x within a column (scratch leftmost)."""
-    return 0.0 if col == SCRATCH_COL else col + 1.0
+def _lane_x(col, scr_cols):
+    """parser column -> x within a display column (scratches leftmost, then keys)."""
+    scr = sorted(scr_cols)
+    return float(scr.index(col)) if col in scr_cols else float(len(scr) + col)
 
 
-def _key_color(col):
-    if col == SCRATCH_COL:
+def _key_color(col, scr_cols):
+    if col in scr_cols:
         return 'tab:red'
     return 'tab:blue' if col % 2 else '0.2'     # alternating like BMS keys, both visible on white bg
 
@@ -102,6 +104,9 @@ def plot_segmented(path, out=None):
     chart = read_bms(path)
     if not chart.notes:
         print('no notes — nothing to draw:', path); return
+    scr_cols = chart.scratch_cols
+    _LANE_W = float(chart.num_keys + len(scr_cols))   # per-chart lane count (shadows module default)
+    _COL_W = _LANE_W + 3.0
     if out is None:                                        # cwd, not next to the chart (data dir may be read-only)
         out = os.path.basename(os.path.splitext(path)[0]) + '_segments.png'
 
@@ -133,7 +138,7 @@ def plot_segmented(path, out=None):
     # notes: LN bodies (translucent) under taps (opaque), batched as two collections
     ln, ln_c, tap, tap_c = [], [], [], []
     for n in chart.notes:
-        lx, colr = _lane_x(n.column), _key_color(n.column)
+        lx, colr = _lane_x(n.column, scr_cols), _key_color(n.column, scr_cols)
         if n.is_ln:
             for c, ylo, yhi in _col_spans(n.beat, n.end_beat):
                 ln.append(mpatches.Rectangle((c * _COL_W + lx - 0.45, ylo), 0.9, yhi - ylo)); ln_c.append(colr)

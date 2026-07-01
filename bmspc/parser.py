@@ -1,28 +1,60 @@
-"""BMS parser for 7K + scratch charts.
+"""BMS parser for 7K/14K-DP + scratch and 9K-PMS charts.
 
 Output: a Chart with notes (absolute beat + wall-clock time + column, optional
 LN end), a beat<->time tempo map, and raw BPM/STOP events for the soflan
 (BPM-change) feature channel. Pure stdlib.
 
-Handles: key channels 11-19 (+16 scratch), LN via #LNOBJ and via 5x channels,
-measure-length scale (ch 02), BPM change (ch 03 integer-hex / ch 08 #BPMxx
-table), STOP (ch 09). Excludes BGM (01), BGA, mines, invisible notes.
+Handles: 1P key channels 11-19 (+16 scratch), 2P channels 21-29 (+26 scratch) for
+DP, and the pop'n 9-button layout; LN via #LNOBJ and via 5x/6x channels;
+measure-length scale (ch 02); BPM change (ch 03 integer-hex / ch 08 #BPMxx table);
+STOP (ch 09). Excludes BGM (01), BGA, mines, invisible notes.
 
-Note: 7K-SP only. 2P channels (21-29 / 5x-2P), pop'n (.pms), and the CN/HCN-vs-LN
-distinction are dropped — add when 14K/DP support is needed.
+Keymode is auto-detected from the channels present (see _layout): 5K/10K ride the
+7K/14K column templates (unused lanes stay empty). The CN/HCN-vs-LN distinction is
+still dropped.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
 from bisect import bisect_right, bisect_left
 import re, itertools
 
-NUM_KEYS = 7
-SCRATCH_COL = 7
-NCOLS = 8  # 0..6 keys, 7 scratch
+NUM_KEYS = 7      # 7K default; a chart's real value is chart.num_keys
+SCRATCH_COL = 7   # 7K default; a chart's real set is chart.scratch_cols
+NCOLS = 8
 
-# 7K single-play layout -> column index.
-_KEY_CH = {'11': 0, '12': 1, '13': 2, '14': 3, '15': 4, '18': 5, '19': 6, '16': 7}
-_LN_CH = {'51': 0, '52': 1, '53': 2, '54': 3, '55': 4, '58': 5, '59': 6, '56': 7}
+# Keymode -> (key channels in play order, scratch channels). Columns are keys
+# first (0..K-1) then scratch. 5K/10K ride the 7K/14K templates (extra lanes stay
+# empty). The LN channel for note channel 'NX' is '(N+4)X' (1P 5X, 2P 6X).
+_LAYOUTS = {
+    '7k':  (['11', '12', '13', '14', '15', '18', '19'], ['16']),
+    '14k': (['11', '12', '13', '14', '15', '18', '19',
+             '21', '22', '23', '24', '25', '28', '29'], ['16', '26']),
+    '9k':  (['11', '12', '13', '14', '15', '22', '23', '24', '25'], []),   # pop'n, no scratch
+}
+_P2 = {f'{a}{b}' for a in '26' for b in '123456789'}   # 2P note (2X) + 2P LN (6X) channels
+_SCR = {'16', '26'}
+
+
+def _ln_ch(ch: str) -> str:
+    return f'{int(ch[0]) + 4}{ch[1]}'   # note channel -> its LN channel (11->51, 21->61)
+
+
+def _layout(used: set[str], is_pms: bool):
+    """(keymode, note_ch->col, ln_ch->col, scratch_cols) from the channels present.
+    pop'n (no scratch, no 2P key 21) is only distinguished from DP by the .pms hint
+    or its channel signature — a real DP chart uses a scratch and key 21."""
+    p2 = used & _P2
+    if is_pms or (p2 and not (used & _SCR) and '21' not in used and '61' not in used):
+        km = '9k'
+    elif p2:
+        km = '14k'
+    else:
+        km = '7k'
+    keys, scr = _LAYOUTS[km]
+    note_ch = {c: i for i, c in enumerate(keys)}
+    note_ch.update({c: len(keys) + i for i, c in enumerate(scr)})
+    ln_ch = {_ln_ch(c): col for c, col in note_ch.items()}
+    return km, note_ch, ln_ch, frozenset(note_ch[c] for c in scr)
 
 _CHAN_RE = re.compile(r'#(\d{3})([0-9A-Za-z]{2}):(.*)')
 _HEAD_RE = re.compile(r'#(\w+)\s*(.*)')
@@ -32,7 +64,7 @@ _HEAD_RE = re.compile(r'#(\w+)\s*(.*)')
 class Note:
     beat: float
     time: float
-    column: int                  # 0..6 keys, 7 scratch
+    column: int                  # keys 0..num_keys-1, then scratch (see Chart.scratch_cols)
     end_beat: float | None = None  # set if long note
     end_time: float | None = None
 
@@ -72,6 +104,9 @@ class Chart:
     total_beats: float
     measure_starts: list[float]             # absolute beat at each measure start
     meta: dict
+    keymode: str = '7k'                     # '7k' | '14k' (DP) | '9k' (PMS)
+    num_keys: int = NUM_KEYS                # keyboard columns (scratch excluded)
+    scratch_cols: frozenset = frozenset({SCRATCH_COL})
 
     @property
     def duration(self) -> float:
@@ -94,7 +129,7 @@ def _build_tempo(bpm_changes: list[tuple[float, float]], init_bpm: float) -> Tem
     return TempoMap(seg_beat, seg_time, seg_bpm)
 
 
-def parse_bms(text: str) -> Chart:
+def parse_bms(text: str, is_pms: bool = False) -> Chart:
     headers: dict[str, str] = {}
     bpm_table: dict[str, float] = {}    # '01' -> bpm
     stop_table: dict[str, float] = {}   # '01' -> units (1/192 whole note)
@@ -190,8 +225,9 @@ def parse_bms(text: str) -> Chart:
     tempo.stop_cum = list(itertools.accumulate((s for _, s in stop_events), initial=0.0))
 
     # --- notes ---
+    keymode, note_ch, ln_ch, scratch_cols = _layout({ch for _, ch in chan}, is_pms)
     notes: list[Note] = []
-    for ch, col in _KEY_CH.items():               # key channels (+ #LNOBJ tails)
+    for ch, col in note_ch.items():               # key + scratch channels (+ #LNOBJ tails)
         col_notes: list[Note] = []
         for beat, pair in sorted(objects(ch)):
             if lnobj and pair.upper() == lnobj:
@@ -201,7 +237,7 @@ def parse_bms(text: str) -> Chart:
                 continue
             col_notes.append(Note(beat, tempo.beat_to_time(beat), col))
         notes.extend(col_notes)
-    for ch, col in _LN_CH.items():                # explicit 5x LN channels (head/tail pairs)
+    for ch, col in ln_ch.items():                 # explicit 5x/6x LN channels (head/tail pairs)
         events = sorted(objects(ch))
         i = 0
         while i < len(events):
@@ -221,7 +257,7 @@ def parse_bms(text: str) -> Chart:
         'init_bpm': init_bpm,
     }
     return Chart(notes, tempo, [(0.0, init_bpm)] + bpm_changes, stop_events,
-                 total_beats, mstart, meta)
+                 total_beats, mstart, meta, keymode, len(note_ch) - len(scratch_cols), scratch_cols)
 
 
 def read_text(path: str) -> str:
@@ -237,4 +273,4 @@ def read_text(path: str) -> str:
 
 
 def read_bms(path: str) -> Chart:
-    return parse_bms(read_text(path))
+    return parse_bms(read_text(path), is_pms=path.lower().endswith('.pms'))

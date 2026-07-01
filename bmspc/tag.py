@@ -1,30 +1,19 @@
-"""Tag a 7K BMS chart's pattern segments — the deployment entry point.
+"""Tag a BMS chart's pattern segments — the deployment entry point.
 
 CLI:  python -m bmspc.tag <chart.bms> [more...] [--json] [--png] [--timeline]
-API:  tag_chart(path) -> dict   (keymode-gated; reused by CLI and any future service)
+API:  tag_chart(path) -> dict   (reused by CLI and any future service)
 
-Only 7K-SP + scratch is supported; other keymodes are detected and skipped, not
-mis-tagged (the feature/tagger pipeline assumes the 7K layout).
+Keymode (7K/14K-DP/9K-PMS) is auto-detected by the parser and reported in the
+result. NOTE: the tagger thresholds are calibrated on 7K only — DP/PMS run through
+the same detectors best-effort (no labelled data to tune them yet).
 """
 from __future__ import annotations
-import re, sys, json, bisect
+import sys, json, bisect
 
 from .parser import read_text, parse_bms
 from .corpus import chart_segments, seg_to_time
 from .tagger import classify, vec_to_dict
 from .segment import SEG_FEATURES
-
-_DP_RE = re.compile(r'#\d{3}(?:2[1-9]|6[1-9]):')   # any 2P channel → not 7K-SP
-
-
-def keymode(text: str, chart) -> str:
-    """Parse-based gate. '7k' only if 1P-only AND uses keys 6/7 (ch 18/19)."""
-    if _DP_RE.search(text):
-        return 'dp/multi'
-    cols = {n.column for n in chart.notes}
-    if 5 in cols or 6 in cols:
-        return '7k'
-    return 'other' if cols else 'empty'
 
 
 def _tok(beat, ms):
@@ -35,16 +24,15 @@ def _tok(beat, ms):
 
 
 def tag_chart(path: str) -> dict:
-    """Full pipeline for one chart -> structured result (API-ready). Non-7K charts
-    return keymode != '7k' with no segments. Note: this parses once here for the
-    keymode gate and again inside chart_segments (which is feature-cached), so the
+    """Full pipeline for one chart -> structured result (API-ready). Empty/noteless
+    charts return with no segments. Note: this parses once here for the keymode
+    report and again inside chart_segments (which is feature-cached), so the
     re-parse only costs on a cold cache."""
     text = read_text(path)
-    ch = parse_bms(text)
-    km = keymode(text, ch)
-    out = {'path': path, 'title': ch.meta.get('title', ''), 'keymode': km,
+    ch = parse_bms(text, is_pms=path.lower().endswith('.pms'))
+    out = {'path': path, 'title': ch.meta.get('title', ''), 'keymode': ch.keymode,
            'duration': round(ch.duration, 1), 'segments': []}
-    if km != '7k':
+    if not ch.notes:
         return out
     meta, wf, segs, vecs = chart_segments(path)
     ms, n = ch.measure_starts, len(wf.beat0)
@@ -62,8 +50,8 @@ def tag_chart(path: str) -> dict:
 
 def _print_text(r):
     print(f"# {r.get('title', '')}  ({r['keymode']}, {r.get('duration', '?')}s)  {r['path']}")
-    if r['keymode'] != '7k':
-        print("  skipped — only 7K-SP+scratch is supported")
+    if not r['segments']:
+        print("  no segments (empty or too short)")
         return
     for s in r['segments']:
         print(f"  {s['m0']:>7}-{s['m1']:<7} {s['t0']:6.1f}-{s['t1']:<6.1f}s  {'+'.join(s['tags'])}")

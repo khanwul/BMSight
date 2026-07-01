@@ -4,9 +4,9 @@ For each sliding beat-window we emit one interpretable feature vector (density /
 uniformity / sequence / chord / BMS-specific groups). Wall-clock derived channels
 (nps, eff_bpm) keep absolute speed so fast-stair vs stair stay separable.
 
-Scratch (col 7) is kept OUT of keyboard pattern features and handled on its own
-channel + an interaction ratio. LN bodies don't inflate density: tap features use
-note heads, LN-jack features use LN-active overlap.
+Scratch columns (chart.scratch_cols — one for SP, two for DP, none for PMS) are
+kept OUT of keyboard pattern features and handled on their own channel. LN bodies
+don't inflate density: tap features use note heads, LN-jack uses LN-active overlap.
 
 Note: window features are computed in plain Python per window (windows hold
 ~8-32 notes); fine for a cached research pipeline. Vectorize if a full-corpus
@@ -17,7 +17,7 @@ from dataclasses import dataclass
 import math
 import numpy as np
 
-from .parser import Chart, NUM_KEYS, SCRATCH_COL
+from .parser import Chart
 
 FEATURE_VERSION = 10  # dropped denim_ratio + scratch_key_sim (viz-debug only; unread by tagger/segmenter)
 ROW_EPS = 0.005          # s; notes within this gap count as one simultaneous row
@@ -235,9 +235,10 @@ def _window(rtime, rbeat, rcols, scr_t, scr_b, lns,
 
 def extract(chart: Chart, win_beats: float = 2.0, hop_beats: float = 0.5) -> WindowFeatures:
     notes = chart.notes
-    kb_on = sorted((n.time, n.beat, n.column) for n in notes if n.column < NUM_KEYS)
+    scratch_cols = chart.scratch_cols
+    kb_on = sorted((n.time, n.beat, n.column) for n in notes if n.column not in scratch_cols)
     rtime, rbeat, rcols = _build_rows(kb_on)
-    scr = sorted((n.beat, n.time) for n in notes if n.column == SCRATCH_COL)
+    scr = sorted((n.beat, n.time) for n in notes if n.column in scratch_cols)
     scr_b = np.array([b for b, _ in scr]); scr_t = np.array([t for _, t in scr])
     lns = [(n.column, n.time, n.end_time, n.beat, n.end_beat) for n in notes if n.is_ln]
     kb_onsets = [(t, c) for t, _, c in kb_on]  # for ln_active_tap, sorted by time
