@@ -20,7 +20,6 @@ import re, itertools
 
 NUM_KEYS = 7      # 7K default; a chart's real value is chart.num_keys
 SCRATCH_COL = 7   # 7K default; a chart's real set is chart.scratch_cols
-NCOLS = 8
 
 # Keymode -> (key channels in play order, scratch channels). Columns are keys
 # first (0..K-1) then scratch. 5K/10K ride the 7K/14K templates (extra lanes stay

@@ -87,7 +87,7 @@ def boundary_f(gt_b, pred_b, tol=1.0):
     return F, P, R
 
 
-def _frame_tags(segs, vocab, hop=0.1, n=None):
+def _frame_tags(segs, vocab, hop=0.1):
     """[n_frames, n_tags] bool coverage from (t0, t1, set-of-tags) segments."""
     end = max(t1 for _, t1, _ in segs)
     m = int(round(end / hop)) + 1
@@ -98,7 +98,7 @@ def _frame_tags(segs, vocab, hop=0.1, n=None):
         for t in tags:
             if t in idx:
                 M[a:b, idx[t]] = True
-    return M if n is None else M[:n]
+    return M
 
 
 def evaluate(label_files, win=2.0, hop=0.5, pen_mult=PEN_MULT, tol=1.0, frame_hop=0.1):

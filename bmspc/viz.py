@@ -55,10 +55,8 @@ def _setup_cjk_font():
 # That viewer's layout: 16 beats per column, notes bottom-to-top, lanes left-to-right
 # = scratch(es) + keys. We reproduce it and overlay the classifier's segment
 # boundaries + tags — the visual companion to `python -m bmspc.tag`. Lane width is
-# per-chart (7K=8, 14K-DP=16, 9K-PMS=9); plot_segmented shadows _LANE_W/_COL_W.
+# per-chart (7K=8, 14K-DP=16, 9K-PMS=9), computed in plot_segmented.
 _BEATS_PER_COL = 16.0
-_LANE_W = 8.0            # 7K default (scratch + 7 keys); real width is chart-derived
-_COL_W = _LANE_W + 3.0   # + a gap before the next column
 
 
 def _lane_x(col, scr_cols):
@@ -105,7 +103,7 @@ def plot_segmented(path, out=None):
     if not chart.notes:
         print('no notes — nothing to draw:', path); return
     scr_cols = chart.scratch_cols
-    _LANE_W = float(chart.num_keys + len(scr_cols))   # per-chart lane count (shadows module default)
+    _LANE_W = float(chart.num_keys + len(scr_cols))   # per-chart lane count
     _COL_W = _LANE_W + 3.0
     if out is None:                                        # cwd, not next to the chart (data dir may be read-only)
         out = os.path.basename(os.path.splitext(path)[0]) + '_segments.png'
