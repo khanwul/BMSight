@@ -5,20 +5,23 @@ it plays), then tags each segment with the pattern types it contains — `stream
 `jack`, `trill`, `chord`, `denim`, `stair`, `long`, `scratch`, `soflan`, `rest`,
 `mix`. Tags are **multi-label**: one segment can be `chord+stream`.
 
-Pure heuristics on interpretable features — no training, no model file. Only 7K
-single-play is supported; other keymodes are detected and skipped, not mis-tagged.
+Pure heuristics on interpretable features — no training, no model file. Keymode is
+auto-detected: **7K** single-play, **14K** double-play, and **9K** pop'n (PMS) all run
+(5K/10K ride the 7K/14K layouts). Thresholds are tuned on 7K only — DP/PMS run
+best-effort (see [Scope & limitations](#scope--limitations)).
 
 ## Install
 
 Requires **Python 3.10+**.
 
 ```bash
-python -m venv .venv && .venv/bin/pip install -r requirements.txt
+python -m venv .venv && .venv/bin/pip install -e '.[viz]'
 ```
 
-`numpy` + `ruptures` (segmentation) are all the CLI needs; `matplotlib` is only for
-the `--png` / `--timeline` images. `main.py` re-execs itself under `.venv`, so
-`python main.py ...` works without activating the venv first.
+`numpy` + `ruptures` (segmentation) are all the tagger CLI needs — that's a bare
+`pip install -e .`; the `[viz]` extra adds `matplotlib`, only for the `--png` /
+`--timeline` images. `main.py` re-execs itself under `.venv`, so `python main.py ...`
+works without activating the venv first.
 
 ## Usage
 
@@ -40,12 +43,12 @@ The same pipeline is one function — the CLI is just a wrapper around it:
 from bmspc.tag import tag_chart
 
 r = tag_chart("path/to/chart.bme")   # same dict the --json output prints
-r["keymode"]                         # '7k' | 'dp/multi' | 'other' | 'empty'
+r["keymode"]                         # '7k' | '14k' (DP) | '9k' (PMS)
 for s in r["segments"]:
     print(s["t0"], s["t1"], s["tags"])
 ```
 
-Non-7K charts come back with `keymode != "7k"` and no segments (never mis-tagged).
+Only empty/noteless charts come back with no segments.
 
 ## Tags
 
@@ -74,8 +77,10 @@ they can tag even an otherwise-`rest` segment (a slow soflan intro, a lone susta
 ```
 
 **1. Parse** (`bmspc/parser.py`) — reads notes as `(beat, wall-clock time, column)` with a
-beat↔time tempo map plus raw BPM/STOP events. Columns `0–6` are keys, `7` is scratch;
-scratch is kept out of the keyboard-pattern features and handled on its own channel.
+beat↔time tempo map plus raw BPM/STOP events, and auto-detects the keymode
+(`chart.keymode` / `num_keys` / `scratch_cols`): keys are columns `0…num_keys-1`, scratch
+follows (one for 7K, two turntables for 14K DP, none for 9K PMS). Scratch is kept out of
+the keyboard-pattern features and handled on its own channel.
 
 **2. Measure** (`bmspc/features.py`) — for each 2-beat window (hopped every 0.5 beat) it
 computes one interpretable feature vector. The features the tagger reads:
@@ -162,11 +167,17 @@ lines = clean cuts.
 
 ## Scope & limitations
 
-- **7K single-play + scratch only.** Keymode is gated at parse time: 2P channels →
-  `dp/multi`, charts without keys 6/7 → `other`, empty → `empty`. Anything but `7k` is
-  skipped, not force-tagged (the feature pipeline assumes the 7K layout).
-- **Parsed:** key channels 11–19 (+16 scratch), LN via `#LNOBJ` and `5x` channels,
-  measure-length scale, BPM change (ch 03 / ch 08 `#BPMxx`), STOP (ch 09).
+- **Keymodes:** 7K single-play, 14K double-play, 9K pop'n (PMS); 5K/10K ride the 7K/14K
+  templates. Detected from the channels present (PMS via the `.pms` extension or its
+  channel signature). Only empty/noteless charts are skipped.
+- **Calibration is 7K-only.** The `THR` thresholds were tuned against a hand-labelled 7K
+  eval set; DP and PMS run through the same detectors **best-effort and unvalidated** —
+  no labelled data yet. DP counts both hands, so `nps` roughly doubles (`stream`/`rest`
+  lean), and PMS's 9-wide layout shifts the `jack`/`stair` chance level. Re-sweep `THR`
+  against a DP/PMS label set for real accuracy there.
+- **Parsed:** 1P key channels 11–19 (+16 scratch), 2P channels 21–29 (+26 scratch) for DP,
+  the pop'n 9-button layout, LN via `#LNOBJ` and `5x`/`6x` channels, measure-length scale,
+  BPM change (ch 03 / ch 08 `#BPMxx`), STOP (ch 09).
 - **Ignored:** BGM, BGA, mines, invisible notes; the CN/HCN-vs-LN distinction is dropped.
 - Tags are **heuristic** — tuned on a small hand-labelled eval set, not learned. The
   thresholds live in `THR` (`bmspc/tagger.py`) and segmentation granularity in
@@ -176,7 +187,7 @@ lines = clean cuts.
 
 ```bash
 python -m bmspc.test_parser   # parser unit tests
-python -m bmspc.test_tag      # keymode-gate tests
+python -m bmspc.test_tag      # keymode-detection tests
 python -m bmspc.features      # module self-check (also: bmspc.segment, bmspc.tagger)
 python -m bmspc.evaluate      # score against hand-labelled charts in labels/ (not shipped)
 ```
