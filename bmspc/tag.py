@@ -1,6 +1,6 @@
 """Tag a 7K BMS chart's pattern segments — the deployment entry point.
 
-CLI:  python -m src.tag <chart.bms> [more...] [--json] [--png] [--timeline]
+CLI:  python -m bmspc.tag <chart.bms> [more...] [--json] [--png] [--timeline]
 API:  tag_chart(path) -> dict   (keymode-gated; reused by CLI and any future service)
 
 Only 7K-SP + scratch is supported; other keymodes are detected and skipped, not
@@ -74,7 +74,7 @@ def main(argv=None):
     do_json, do_png, do_tl = '--json' in argv, '--png' in argv, '--timeline' in argv
     paths = [a for a in argv if not a.startswith('-')]
     if not paths:
-        print('usage: python -m src.tag <chart.bms> [more...] [--json] [--png] [--timeline]', file=sys.stderr)
+        print('usage: python -m bmspc.tag <chart.bms> [more...] [--json] [--png] [--timeline]', file=sys.stderr)
         return 2
     if do_png or do_tl:                        # renders; matplotlib is heavy, import on demand
         from .viz import plot_segmented, plot_segments_timeline

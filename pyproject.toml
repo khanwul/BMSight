@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bmspc"
+version = "0.1.0"
+description = "BMS 7K chart pattern segmentation + heuristic multi-label tagging"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["numpy>=2.0", "ruptures>=1.1"]
+
+# viz (overlay PNGs) is optional — the tagger/segmenter core does not need it.
+[project.optional-dependencies]
+viz = ["matplotlib>=3.8"]
+
+[tool.setuptools]
+packages = ["bmspc"]

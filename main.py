@@ -6,7 +6,7 @@
   python main.py <chart.bms> --png         chart render with segment/tag overlay (PNG)
   python main.py <chart.bms> --timeline    segmentation diagnostic: texture curves + boundaries (PNG)
 
-Flags pass straight through to src.tag.main.
+Flags pass straight through to bmspc.tag.main.
 """
 import os, sys
 
@@ -16,7 +16,7 @@ _venv = os.path.join(_venv_dir, 'bin', 'python')
 if os.path.exists(_venv) and os.path.realpath(sys.prefix) != os.path.realpath(_venv_dir):
     os.execv(_venv, [_venv, *sys.argv])
 
-from src.tag import main
+from bmspc.tag import main
 
 if __name__ == '__main__':
     sys.exit(main())

@@ -3,7 +3,7 @@
 plot_segmented(path)          -> web-bms-style chart render + segment/tag overlay  (--png)
 plot_segments_timeline(path)  -> texture-curve segmentation diagnostic             (--timeline)
 
-Driven by the CLI (`python -m src.tag --png / --timeline`); not run directly.
+Driven by the CLI (`python -m bmspc.tag --png / --timeline`); not run directly.
 """
 from __future__ import annotations
 import matplotlib
@@ -54,7 +54,7 @@ def _setup_cjk_font():
 # ---- web-bms-viewer-style render (Snack-X/web-bms-viewer) + classifier segments ----
 # That viewer's layout: 16 beats per column, notes bottom-to-top, lanes left-to-right
 # = scratch + keys 1-7. We reproduce it and overlay the classifier's segment
-# boundaries + tags — the visual companion to `python -m src.tag`.
+# boundaries + tags — the visual companion to `python -m bmspc.tag`.
 _BEATS_PER_COL = 16.0
 _LANE_W = 8.0            # scratch + 7 keys occupy x = 0..7 within a column
 _COL_W = _LANE_W + 3.0   # + a gap before the next column

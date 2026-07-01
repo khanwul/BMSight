@@ -1,4 +1,4 @@
-"""Self-check for the BMS parser. Run: python -m src.test_parser"""
+"""Self-check for the BMS parser. Run: python -m bmspc.test_parser"""
 from .parser import parse_bms, SCRATCH_COL
 
 # measure 0 (#000): 4 keys on col0 (ch11) at beats 0,1,2,3 -> @120bpm = 0,.5,1,1.5

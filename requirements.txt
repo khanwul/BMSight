@@ -1,4 +1,4 @@
-# Core (parse → features → segment → tag; the CLI `python -m src.tag`):
+# Core (parse → features → segment → tag; the CLI `python -m bmspc.tag`):
 numpy>=2.0
 ruptures>=1.1            # PELT changepoint segmentation
 

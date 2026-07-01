@@ -1,4 +1,4 @@
-"""self-check for the keymode gate (python -m src.test_tag)."""
+"""self-check for the keymode gate (python -m bmspc.test_tag)."""
 from .parser import parse_bms
 from .tag import keymode
 

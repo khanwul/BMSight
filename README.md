@@ -37,7 +37,7 @@ and skipped, never crashing the batch.
 The same pipeline is one function — the CLI is just a wrapper around it:
 
 ```python
-from src.tag import tag_chart
+from bmspc.tag import tag_chart
 
 r = tag_chart("path/to/chart.bme")   # same dict the --json output prints
 r["keymode"]                         # '7k' | 'dp/multi' | 'other' | 'empty'
@@ -73,11 +73,11 @@ they can tag even an otherwise-`rest` segment (a slow soflan intro, a lone susta
         notes    (2-beat win, 0.5 hop)      on texture axes      mean vector    classify
 ```
 
-**1. Parse** (`src/parser.py`) — reads notes as `(beat, wall-clock time, column)` with a
+**1. Parse** (`bmspc/parser.py`) — reads notes as `(beat, wall-clock time, column)` with a
 beat↔time tempo map plus raw BPM/STOP events. Columns `0–6` are keys, `7` is scratch;
 scratch is kept out of the keyboard-pattern features and handled on its own channel.
 
-**2. Measure** (`src/features.py`) — for each 2-beat window (hopped every 0.5 beat) it
+**2. Measure** (`bmspc/features.py`) — for each 2-beat window (hopped every 0.5 beat) it
 computes one interpretable feature vector. The features the tagger reads:
 
 - **Density**: `nps` (keyboard notes/sec — scratch excluded), `peak_nps`, `mean_simul` (notes per row = chord thickness)
@@ -85,14 +85,14 @@ computes one interpretable feature vector. The features the tagger reads:
 - **Chord shape**: `j2_jaccard` (lag-2 key-set self-similarity → 2-periodicity), `span_overlap` (adjacent hand spans intersect)
 - **BMS channels**: `scratch_nps`, `ln_coverage` / `ln_active_tap_ratio`, `bpm_off_main` (fraction off the main tempo) / `stop_time_frac`
 
-**3. Segment** (`src/segment.py`) — boundaries are placed on **texture change only** —
+**3. Segment** (`bmspc/segment.py`) — boundaries are placed on **texture change only** —
 density (`nps`, `peak_nps`, `mean_simul`) and repetition degree (`j2_jaccard`, `ioi_cv`,
 `snap_entropy`) — *not* pattern shape (that's the tagger's job; segmenting on it too would
 chop a steady passage every time the hand-shape drifts). Features are z-scored per chart,
 then PELT (`l2`) changepoint detection auto-selects the boundaries. Granularity is one
 knob, `BMS_PEN_MULT` (default `3.0`, higher = coarser).
 
-**4. Tag** (`src/tagger.py`) — each segment is the **mean of its windows' features in raw
+**4. Tag** (`bmspc/tagger.py`) — each segment is the **mean of its windows' features in raw
 units**. The classifier applies **absolute thresholds** (in `THR`) to that vector and emits
 the tag set. Absolute (not corpus-relative) bars matter: relative z-scoring inflates
 rare-but-above-average features (a jumpstream would drift toward the `denim` region even
@@ -169,19 +169,19 @@ lines = clean cuts.
   measure-length scale, BPM change (ch 03 / ch 08 `#BPMxx`), STOP (ch 09).
 - **Ignored:** BGM, BGA, mines, invisible notes; the CN/HCN-vs-LN distinction is dropped.
 - Tags are **heuristic** — tuned on a small hand-labelled eval set, not learned. The
-  thresholds live in `THR` (`src/tagger.py`) and segmentation granularity in
+  thresholds live in `THR` (`bmspc/tagger.py`) and segmentation granularity in
   `BMS_PEN_MULT`; both are meant to be re-tuned for a different chart pool.
 
 ## Development
 
 ```bash
-python -m src.test_parser   # parser unit tests
-python -m src.test_tag      # keymode-gate tests
-python -m src.features      # module self-check (also: src.segment, src.tagger)
-python -m src.evaluate      # score against hand-labelled charts in labels/ (not shipped)
+python -m bmspc.test_parser   # parser unit tests
+python -m bmspc.test_tag      # keymode-gate tests
+python -m bmspc.features      # module self-check (also: bmspc.segment, bmspc.tagger)
+python -m bmspc.evaluate      # score against hand-labelled charts in labels/ (not shipped)
 ```
 
-`src/evaluate.py` reports boundary F-measure and per-tag frame precision/recall/F1 against
+`bmspc/evaluate.py` reports boundary F-measure and per-tag frame precision/recall/F1 against
 hand-labelled ground truth — the instrument for calibrating the `THR` thresholds.
 
 ## License
