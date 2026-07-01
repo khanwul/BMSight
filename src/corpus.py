@@ -14,7 +14,7 @@ import numpy as np
 
 from .parser import read_bms
 from .features import extract, FEATURE_VERSION
-from .segment import segment, PEN_MULT
+from .segment import segment, hier_boundaries, PEN_MULT, SUB_PATTERN
 
 _CACHE = os.path.join(os.path.dirname(__file__), os.pardir, '.cache')
 
@@ -46,14 +46,15 @@ def seg_to_time(wf, segs):
     return [(float(wf.t0[a]), float(wf.t0[b]) if b < n else float(wf.t1[-1])) for a, b in segs]
 
 
-def chart_segments(path, win=2.0, hop=0.5, pen_mult=PEN_MULT, min_win=2):
+def chart_segments(path, win=2.0, hop=0.5, pen_mult=PEN_MULT, min_win=2, sub_pattern=SUB_PATTERN):
     """(meta, wf, segs, vecs) for one chart. segs = list of (a,b) window-index
     ranges; vecs = per-segment raw mean vectors. Shared by the corpus table and
-    the overlay viz."""
+    the overlay viz. sub_pattern (BMS_SUB_PATTERN=1) adds pattern-transition
+    sub-boundaries on top of the texture ones — finer, pattern-aware segments."""
     meta, wf = chart_features(path, win, hop)
     if wf.X.shape[0] < 5:
         return meta, wf, [], np.zeros((0, len(wf.names)))
-    bk, _ = segment(wf, pen_mult=pen_mult)
+    bk = hier_boundaries(wf, pen_mult) if sub_pattern else segment(wf, pen_mult=pen_mult)[0]
     edges = [0] + list(bk) + [len(wf.X)]
     segs = [(a, b) for a, b in zip(edges[:-1], edges[1:]) if b - a >= min_win]
     vecs = np.array([wf.X[a:b].mean(0) for a, b in segs]) if segs else np.zeros((0, len(wf.names)))

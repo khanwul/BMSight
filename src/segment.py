@@ -36,6 +36,19 @@ SEG_FEATURES = [
 # over-segments into 1-2s fragments (the d·log(n) penalty is small at only d=6 features).
 PEN_MULT = float(os.environ.get('BMS_PEN_MULT', '3.0'))
 
+# Optional pattern-transition sub-splitting (BMS_SUB_PATTERN=1). OFF by default.
+# When on, chart_segments adds boundaries where the SMOOTHED pattern shape
+# (jack/trill/stair) changes, on TOP of the texture ones — finer, pattern-aware
+# segments for downstream per-segment analysis. It trades boundary precision for
+# recall (more, sometimes spurious, splits), so it stays opt-in, not the default.
+# The additive layer is deliberate: feeding shape straight into the texture vector
+# was tested and corrupts texture boundaries on density/tempo charts (shape is flat
+# OR high-and-variable there), so shape only ADDS sub-splits, never moves texture ones.
+SHAPE_FEATURES = ['jack_ratio', 'trill_ratio', 'stair_ratio']
+SUB_PATTERN = os.environ.get('BMS_SUB_PATTERN', '') not in ('', '0', 'false', 'False')
+SHAPE_PEN_MULT = float(os.environ.get('BMS_SHAPE_PEN', '3.0'))
+SHAPE_SMOOTH = int(os.environ.get('BMS_SHAPE_SMOOTH', '5'))
+
 
 def select(wf: WindowFeatures) -> np.ndarray:
     idx = [wf.names.index(n) for n in SEG_FEATURES]
@@ -61,8 +74,45 @@ def segment(wf: WindowFeatures, pen_mult: float = PEN_MULT, min_size: int = 2):
     return bkps[:-1], Xs  # drop the trailing n
 
 
+def _smooth(x: np.ndarray, k: int) -> np.ndarray:
+    """Centered box low-pass over the window axis (edge-padded). k<=1 = identity."""
+    if k <= 1:
+        return x
+    pad = k // 2
+    return np.convolve(np.pad(x, pad, mode='edge'), np.ones(k) / k, mode='valid')
+
+
+def shape_boundaries(wf: WindowFeatures, pen_mult: float = SHAPE_PEN_MULT,
+                     k: int = SHAPE_SMOOTH, min_size: int = 2):
+    """PELT changepoints on SMOOTHED pattern-shape features — the pattern TRANSITIONS.
+    Low-pass first: raw shape ratios jitter window-to-window and would over-split.
+    Kept separate from segment(): these only ADD sub-splits to the texture boundaries
+    (see hier_boundaries), never replace them."""
+    idx = [wf.names.index(n) for n in SHAPE_FEATURES]
+    Xs = standardize(np.column_stack([_smooth(wf.X[:, i], k) for i in idx]))
+    n, d = Xs.shape
+    if n < 2 * min_size + 1:
+        return []
+    pen = pen_mult * d * np.log(n)
+    return rpt.Pelt(model='l2', min_size=min_size).fit(Xs).predict(pen=pen)[:-1]
+
+
+def hier_boundaries(wf: WindowFeatures, pen_mult: float = PEN_MULT,
+                    shape_pen: float = SHAPE_PEN_MULT, k: int = SHAPE_SMOOTH, min_size: int = 2):
+    """Texture boundaries + pattern-shape sub-boundaries (union). A shape breakpoint is
+    added only if it doesn't crowd a texture one (>= min_size apart), so every texture
+    boundary survives and finer splits appear only at genuine pattern transitions."""
+    tb, _ = segment(wf, pen_mult=pen_mult, min_size=min_size)
+    n = len(wf.X)
+    kept = list(tb)
+    for b in sorted(shape_boundaries(wf, shape_pen, k, min_size)):
+        if min_size <= b <= n - min_size and all(abs(b - x) >= min_size for x in kept):
+            kept.append(b)
+    return sorted(set(kept))
+
+
 if __name__ == '__main__':  # self-check: density splits, pattern-shape does not
-    names = list(SEG_FEATURES) + ['jack_ratio']  # jack_ratio = a DROPPED shape feature
+    names = list(SEG_FEATURES) + ['jack_ratio', 'trill_ratio', 'stair_ratio']  # + shape feats
     n = 40
 
     def _wf(col, lo, hi):
@@ -77,4 +127,10 @@ if __name__ == '__main__':  # self-check: density splits, pattern-shape does not
     assert any(abs(b - n // 2) <= 2 for b in bk_density), f"density step missed: {bk_density}"
     bk_shape, _ = segment(_wf('jack_ratio', 0.0, 1.0), pen_mult=1.0)
     assert not bk_shape, f"shape-only step must NOT split: {bk_shape}"
-    print('ok — density boundary', bk_density, '| shape change ignored', bk_shape)
+
+    # optional sub-pattern layer: a shape transition DOES add a boundary; texture ignores it
+    assert shape_boundaries(_wf('jack_ratio', 0.0, 1.0), pen_mult=1.0), 'shape step must give a boundary'
+    assert not shape_boundaries(_wf('nps', 2.0, 20.0), pen_mult=1.0), 'flat shape -> no shape boundary'
+    hb = hier_boundaries(_wf('jack_ratio', 0.0, 1.0), pen_mult=1.0, shape_pen=1.0)
+    assert any(abs(b - n // 2) <= 2 for b in hb), f'hier must add the shape boundary: {hb}'
+    print('ok — density', bk_density, '| shape ignored by texture', bk_shape, '| hier adds shape', hb)
