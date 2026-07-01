@@ -1,69 +1,23 @@
-"""Chart + feature visualization. Notes on top, feature curves below, shared time
-axis. The debugging workhorse: eyeball the parse and the features before trusting
-any segmentation.
+"""Chart + segment visualization for the classifier.
 
-Usage: python -m src.viz <chart_path> [out.png] [t_start t_end]
+plot_segmented(path)          -> web-bms-style chart render + segment/tag overlay  (--png)
+plot_segments_timeline(path)  -> texture-curve segmentation diagnostic             (--timeline)
+
+Driven by the CLI (`python -m src.tag --png / --timeline`); not run directly.
 """
 from __future__ import annotations
-import sys
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from matplotlib.collections import LineCollection
 
-from .parser import read_bms, NUM_KEYS, SCRATCH_COL
-from .features import extract
-
-# feature curves to overlay (name, panel). panel 1 = density, panel 2 = ratios.
-_DENSITY = ['nps', 'peak_nps', 'eff_bpm']
-_RATIOS = ['jack_ratio', 'trill_ratio', 'stair_ratio', 'denim_ratio',
-           'ln_coverage', 'scratch_key_sim']
+from .parser import read_bms, SCRATCH_COL
 
 
-def _draw_notes(a, chart):
-    segs, taps_x, taps_y = [], [], []
-    for n in chart.notes:
-        if n.is_ln:
-            segs.append([(n.time, n.column), (n.end_time, n.column)])
-        else:
-            taps_x.append(n.time); taps_y.append(n.column)
-    a.add_collection(LineCollection(segs, colors='tab:orange', linewidths=6, alpha=0.5))
-    is_scr = [c == SCRATCH_COL for c in taps_y]
-    a.scatter([x for x, s in zip(taps_x, is_scr) if not s],
-              [y for y, s in zip(taps_y, is_scr) if not s], s=14, c='tab:blue')
-    a.scatter([x for x, s in zip(taps_x, is_scr) if s],
-              [y for y, s in zip(taps_y, is_scr) if s], s=20, c='tab:red', marker='s')
-    a.set_yticks(range(NUM_KEYS + 1))
-    a.set_yticklabels([f'k{i+1}' for i in range(NUM_KEYS)] + ['SC'])
-    a.set_ylim(-0.5, NUM_KEYS + 0.5)
-
-
-def plot(chart, wf, out='chart.png', t0=None, t1=None):
-    dur = chart.duration
-    t0 = 0.0 if t0 is None else t0
-    t1 = dur if t1 is None else t1
-    width = min(max((t1 - t0) * 0.6, 8), 200)
-    fig, ax = plt.subplots(3, 1, figsize=(width, 9), sharex=True,
-                           height_ratios=[3, 1.3, 1.3])
-    _draw_notes(ax[0], chart)
-    ax[0].set_title(f"{chart.meta['title']}  (lv {chart.meta['playlevel']}, "
-                    f"{len(chart.notes)} notes, {dur:.0f}s)")
-    ax[0].grid(True, axis='x', alpha=0.2)
-
-    tc = (wf.t0 + wf.t1) / 2
-    idx = {n: i for i, n in enumerate(wf.names)}
-    for name in _DENSITY:
-        ax[1].plot(tc, wf.X[:, idx[name]], label=name, lw=1)
-    ax[1].legend(loc='upper right', fontsize=7); ax[1].set_ylabel('density'); ax[1].grid(alpha=0.2)
-    for name in _RATIOS:
-        ax[2].plot(tc, wf.X[:, idx[name]], label=name, lw=1)
-    ax[2].legend(loc='upper right', fontsize=7, ncol=3); ax[2].set_ylabel('ratio')
-    ax[2].set_xlabel('time (s)'); ax[2].grid(alpha=0.2)
-
-    ax[0].set_xlim(t0, t1)
-    fig.tight_layout()
-    fig.savefig(out, dpi=100)
-    print('wrote', out)
+def _tagcol():
+    """tag -> stable tab20 color, shared by every plot fn."""
+    from .evaluate import TAGS
+    cmap = plt.get_cmap('tab20')
+    return {t: cmap(i % 20) for i, t in enumerate(TAGS)}
 
 
 def _setup_cjk_font():
@@ -95,66 +49,6 @@ def _setup_cjk_font():
         except Exception:
             continue
     return None
-
-
-def plot_labeled(path, label_file, out=None, t0=None, t1=None):
-    """Overlay a label file's `t0 t1 tag` segments on the chart notes — boundary
-    lines + a pattern band — so a draft (or corrected) labelling can be eyeballed
-    against the actual notes. Run again after editing the .txt to re-check."""
-    import os
-    import matplotlib.patches as mpatches
-    from .evaluate import parse_labels, resolve, TAGS
-    _setup_cjk_font()
-    _, raw = parse_labels(label_file)
-    chart = read_bms(path)
-    segs = resolve(raw, chart)                          # (t0,t1,tag) seconds, 1:1 with raw
-    dur = chart.duration
-    lo, hi = (0.0 if t0 is None else t0), (dur if t1 is None else t1)
-    if out is None:                                    # zoom writes its own file, not over the full view
-        zoom = t0 is not None or t1 is not None
-        out = label_file[:-4] + (f'_view_{int(lo)}-{int(hi)}.png' if zoom else '_view.png')
-    width = min(max((hi - lo) * 0.6, 10), 220)
-    fig, ax = plt.subplots(2, 1, figsize=(width, 6), sharex=True, height_ratios=[3, 1.2])
-    _draw_notes(ax[0], chart)
-    ax[0].set_ylim(-1.3, NUM_KEYS + 2.6)               # headroom: boundary labels (top) + measure grid (bottom)
-    # measure grid (hand-label aid): a line at every measure downbeat, numbered
-    # periodically, so any point can be read off as a measure token (M or M:B)
-    ms = chart.measure_starts
-    mstep = max(1, round(len(ms) / 36))                 # ~36 numbers, avoid clutter
-    for m in range(len(ms)):
-        mt = chart.tempo.beat_to_time(ms[m])
-        if not (lo <= mt <= hi):
-            continue
-        lab = m % mstep == 0
-        ax[0].axvline(mt, color='0.82' if lab else '0.93', lw=0.6 if lab else 0.4, zorder=0)
-        if lab:
-            ax[0].text(mt, -0.7, str(m), ha='center', va='top', fontsize=5.5, color='0.5')
-    cmap = plt.get_cmap('tab20')
-    tagcol = {t: cmap(i % 20) for i, t in enumerate(TAGS)}
-    for s0, s1, tag in segs:
-        col = tagcol.get(tag.split('+')[0], (.6, .6, .6, 1.0))   # color by primary (multi-label tags joined by +)
-        ax[0].axvspan(s0, s1, color=col, alpha=0.16)
-        ax[1].axvspan(s0, s1, color=col, alpha=0.75)
-        ax[1].text((s0 + s1) / 2, 0.5, tag, ha='center', va='center', fontsize=7)
-    # boundaries: raw tokens are already measure:beat (0-indexed) -> annotate directly
-    def _fmt(tok):
-        m, b = (tok.split(':', 1) + ['0'])[:2] if ':' in tok else (tok, '0')
-        return f"m{m} b{float(b):g}"
-
-    if raw:
-        bounds = [(segs[0][0], raw[0][0])] + [(segs[i][1], raw[i][1]) for i in range(len(raw))]
-        for tx, tok in bounds:
-            ax[0].axvline(tx, color='0.25', lw=0.7)
-            ax[0].text(tx, NUM_KEYS + 0.7, _fmt(tok), rotation=90,
-                       ha='center', va='bottom', fontsize=5.5, color='0.2')
-    used = list(dict.fromkeys(t.split('+')[0] for _, _, t in segs))   # primary tags (multi-label joined by +)
-    ax[0].legend(handles=[mpatches.Patch(color=tagcol.get(t, '0.6'), label=t) for t in used],
-                 loc='upper right', fontsize=7, ncol=max(1, (len(used) + 1) // 2))
-    ax[0].set_title(f"{chart.meta['title']} — {os.path.basename(label_file)}")
-    ax[0].grid(True, axis='x', alpha=0.2)
-    ax[1].set_yticks([]); ax[1].set_ylabel('pattern'); ax[1].set_xlabel('time (s)')
-    ax[0].set_xlim(lo, hi)
-    fig.tight_layout(); fig.savefig(out, dpi=100); print('wrote', out)
 
 
 # ---- web-bms-viewer-style render (Snack-X/web-bms-viewer) + classifier segments ----
@@ -202,7 +96,6 @@ def plot_segmented(path, out=None):
     from matplotlib.collections import PatchCollection
     from .corpus import chart_segments
     from .tagger import classify, vec_to_dict
-    from .evaluate import TAGS
     _setup_cjk_font()
 
     meta, wf, segs, vecs = chart_segments(path)
@@ -221,8 +114,7 @@ def plot_segmented(path, out=None):
 
     max_beat = max([(n.end_beat or n.beat) for n in chart.notes] + [chart.measure_starts[-1]])
     ncol = int(max_beat // _BEATS_PER_COL) + 1
-    cmap = plt.get_cmap('tab20')
-    tagcol = {t: cmap(i % 20) for i, t in enumerate(TAGS)}
+    tagcol = _tagcol()
     fig, ax = plt.subplots(figsize=(max(7.0, ncol * 1.0), 9))
 
     # tag bands (behind everything), one rectangle per column-slice of each segment
@@ -279,7 +171,6 @@ def plot_segments_timeline(path, out=None):
     from .corpus import chart_segments, seg_to_time
     from .segment import SEG_FEATURES, select, standardize
     from .tagger import classify, vec_to_dict
-    from .evaluate import TAGS
     _setup_cjk_font()
 
     meta, wf, segs, vecs = chart_segments(path)
@@ -292,8 +183,7 @@ def plot_segments_timeline(path, out=None):
     Xs = standardize(select(wf))                       # [n_win, 6] z-scored, same matrix PELT sees
     times = seg_to_time(wf, segs)
     tags = [classify(vec_to_dict(v, wf.names)) for v in vecs]
-    cmap = plt.get_cmap('tab20')
-    tagcol = {t: cmap(i % 20) for i, t in enumerate(TAGS)}
+    tagcol = _tagcol()
 
     w = min(max(float(wf.t1[-1]) * 0.18, 10.0), 200.0)
     fig, ax = plt.subplots(3, 1, figsize=(w, 6.5), sharex=True, height_ratios=[1, 3.2, 3.2])
@@ -329,19 +219,3 @@ def plot_segments_timeline(path, out=None):
     ax[0].set_title(f"{meta.get('title', '')} — segmentation diagnostic ({len(segs)} segs)")
     fig.tight_layout(); fig.savefig(out, dpi=110, bbox_inches='tight'); plt.close(fig)
     print('wrote', out)
-
-
-if __name__ == '__main__':
-    arg = sys.argv[1]
-    if arg.endswith('.txt'):                       # label file -> overlay view
-        from .evaluate import parse_labels
-        path, _ = parse_labels(arg)
-        ts = float(sys.argv[2]) if len(sys.argv) > 2 else None
-        te = float(sys.argv[3]) if len(sys.argv) > 3 else None
-        plot_labeled(path, arg, t0=ts, t1=te)
-    else:                                          # chart file -> notes + features
-        out = sys.argv[2] if len(sys.argv) > 2 else 'chart.png'
-        ts = float(sys.argv[3]) if len(sys.argv) > 3 else None
-        te = float(sys.argv[4]) if len(sys.argv) > 4 else None
-        ch = read_bms(arg)
-        plot(ch, extract(ch), out, ts, te)

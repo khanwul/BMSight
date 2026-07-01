@@ -1,6 +1,6 @@
 # BMS Pattern Classifier
 
-Splits a **7K + scratch** BMS chart into segments by *texture* (how dense/repetitive
+Splits a BMS chart into segments by *texture* (how dense/repetitive
 it plays), then tags each segment with the pattern types it contains — `stream`,
 `jack`, `trill`, `chord`, `denim`, `stair`, `long`, `scratch`, `soflan`, `rest`,
 `mix`. Tags are **multi-label**: one segment can be `chord+stream`.

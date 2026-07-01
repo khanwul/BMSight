@@ -14,7 +14,7 @@ distinction are dropped — add when 14K/DP support is needed.
 from __future__ import annotations
 from dataclasses import dataclass, field
 from bisect import bisect_right, bisect_left
-import re
+import re, itertools
 
 NUM_KEYS = 7
 SCRATCH_COL = 7
@@ -136,9 +136,7 @@ def parse_bms(text: str) -> Chart:
 
     n_meas = max_measure + 1
     mbeats = [4.0 * measure_scale.get(i, 1.0) for i in range(n_meas)]
-    mstart = [0.0] * (n_meas + 1)
-    for i in range(n_meas):
-        mstart[i + 1] = mstart[i] + mbeats[i]
+    mstart = list(itertools.accumulate(mbeats, initial=0.0))
     total_beats = mstart[n_meas]
 
     def objects(ch: str):
@@ -189,10 +187,7 @@ def parse_bms(text: str) -> Chart:
     stop_events = [(b, units / 48.0 * 60.0 / tempo.bpm_at(b)) for b, units in stops_units]
     stop_events.sort()
     tempo.stop_beat = [b for b, _ in stop_events]
-    cum, acc = [0.0], 0.0
-    for _, s in stop_events:
-        acc += s; cum.append(acc)
-    tempo.stop_cum = cum
+    tempo.stop_cum = list(itertools.accumulate((s for _, s in stop_events), initial=0.0))
 
     # --- notes ---
     notes: list[Note] = []

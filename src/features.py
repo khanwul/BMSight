@@ -19,7 +19,7 @@ import numpy as np
 
 from .parser import Chart, NUM_KEYS, SCRATCH_COL
 
-FEATURE_VERSION = 9  # dropped 26 features read by no consumer (tagger/segmenter/viz)
+FEATURE_VERSION = 10  # dropped denim_ratio + scratch_key_sim (viz-debug only; unread by tagger/segmenter)
 ROW_EPS = 0.005          # s; notes within this gap count as one simultaneous row
 _SNAP_NS = (1, 2, 3, 4, 6, 8, 12, 16, 24, 48)
 
@@ -91,12 +91,10 @@ _NAMES = [
     'ioi_cv', 'snap_entropy',
     # D sequence
     'jack_ratio', 'trill_ratio', 'stair_ratio',
-    # E chord
-    'denim_ratio',
     # E2 trajectory / chord-shape (J2 lag-2 Jaccard, span overlap)
     'j2_jaccard', 'span_overlap',
     # F2 scratch
-    'scratch_nps', 'scratch_key_sim',
+    'scratch_nps',
     # F3 LN
     'ln_coverage', 'ln_active_tap_ratio',
     # F4 soflan (BPM change)
@@ -187,12 +185,6 @@ def _window(rtime, rbeat, rcols, scr_t, scr_b, lns,
                 stair_notes += 1
         f['stair_ratio'] = stair_notes / len(cseq)
 
-    # chord rows: denim (disjoint adjacent chords) + jumpstream-chord stair (centroid monotone)
-    chords = [(b, cols) for b, cols in zip(rbeat[lo:hi], rc) if len(cols) >= 2]
-    if len(chords) >= 2:
-        denim = sum(1 for (_, a), (_, b) in zip(chords[:-1], chords[1:]) if not (set(a) & set(b)))
-        f['denim_ratio'] = denim / (len(chords) - 1)
-
     # trajectory / chord-shape metrics on ALL rows (single+chord, cols 0-6):
     #   j2  = mean lag-2 Jaccard of key sets (high = 2-periodic = denim/trill)
     #   span_overlap = fraction of adjacent rows whose [min,max] spans intersect (denim vs split-trill)
@@ -210,10 +202,6 @@ def _window(rtime, rbeat, rcols, scr_t, scr_b, lns,
     n_scr = shi - slo
     if n_scr:
         f['scratch_nps'] = n_scr / wall
-        st = scr_t[slo:shi]
-        # scratch-key simultaneity: scratch onset within ROW_EPS of any keyboard row
-        sim = sum(1 for t in st if len(rt) and np.min(np.abs(rt - t)) <= ROW_EPS)
-        f['scratch_key_sim'] = sim / n_scr
 
     # LN / LN-jack
     win_lns = [(c, max(a, t0), min(z, t1)) for (c, a, z, _, _) in lns if a < t1 and z > t0]
