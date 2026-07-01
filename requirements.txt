@@ -1,0 +1,7 @@
+# Core (parse → features → segment → tag; the CLI `python -m src.tag`):
+numpy>=2.0
+ruptures>=1.1            # PELT changepoint segmentation
+
+# Only for viz (overlay images) — NOT needed to run the tagger CLI.
+# Drop for a tag-only deployment.
+matplotlib>=3.8
